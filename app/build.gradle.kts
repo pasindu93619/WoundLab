@@ -8,7 +8,7 @@ plugins {
 
 android {
     namespace = "com.pasindu.woundlab"
-    compileSdk = 36
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.pasindu.woundlab"
@@ -36,20 +36,32 @@ android {
             )
         }
     }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
+
     kotlinOptions {
         jvmTarget = "11"
     }
 
-    // --- FIX START ---
     buildFeatures {
         compose = true
-        buildConfig = true // REQUIRED: Enables generation of BuildConfig.DEBUG
+        buildConfig = true
     }
-    // --- FIX END ---
+
+    // --- PACKAGING FIX START ---
+    packaging {
+        resources {
+            // Resolves license collisions from Open Health Stack, Room, and Kotlin Coroutines
+            excludes += "META-INF/ASL-2.0.txt"
+            excludes += "META-INF/LGPL2.1"
+            excludes += "META-INF/AL2.0"
+            excludes += "META-INF/LGPL-3.0.txt"
+        }
+    }
+    // --- PACKAGING FIX END ---
 
     kapt {
         correctErrorTypes = true
@@ -92,6 +104,7 @@ dependencies {
     // Permissions (Accompanist)
     implementation(libs.accompanist.permissions)
     implementation(libs.androidx.hilt.navigation.compose)
+
     // Testing
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

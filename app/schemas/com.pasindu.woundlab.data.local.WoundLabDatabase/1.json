@@ -1,0 +1,70 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 1,
+    "identityHash": "5aedfb6a6ddcb4faf9e9f3422e595b42",
+    "entities": [
+      {
+        "tableName": "telemetry_logs",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `timestamp` INTEGER NOT NULL, `sessionId` TEXT NOT NULL, `pitch` REAL NOT NULL, `roll` REAL NOT NULL, `azimuth` REAL NOT NULL, `luminosity` REAL NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "timestamp",
+            "columnName": "timestamp",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sessionId",
+            "columnName": "sessionId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "pitch",
+            "columnName": "pitch",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "roll",
+            "columnName": "roll",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "azimuth",
+            "columnName": "azimuth",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "luminosity",
+            "columnName": "luminosity",
+            "affinity": "REAL",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      }
+    ],
+    "views": [],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '5aedfb6a6ddcb4faf9e9f3422e595b42')"
+    ]
+  }
+}
