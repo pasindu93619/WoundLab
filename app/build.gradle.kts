@@ -71,6 +71,9 @@ android {
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
+    // ADDED: Lifecycle Compose for collectAsStateWithLifecycle
+    implementation(libs.androidx.lifecycle.runtime.compose)
+
     implementation(libs.androidx.activity.compose)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.ui)
