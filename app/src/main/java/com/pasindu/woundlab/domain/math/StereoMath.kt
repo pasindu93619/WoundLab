@@ -2,113 +2,128 @@ package com.pasindu.woundlab.domain.math
 
 import com.pasindu.woundlab.domain.model.LensIntrinsics
 import javax.inject.Inject
-import javax.inject.Singleton
 import kotlin.math.pow
 import kotlin.math.sqrt
 
 /**
  * StereoMath
  *
- * The pure mathematical engine for the "Zero-Cost" Optical Layer.
+ * The core mathematical engine for the Zero-Cost Optical Engine.
+ * Implements the pinhole camera model and standard stereo disparity formulas.
  *
  * Responsibilities:
- * 1. Calculate Depth (Z) using the standard stereo triangulation formula.
- * 2. Correct Lens Distortion using the Brown-Conrady model (Essential for accurate measurements).
+ * 1. DEPTH ESTIMATION: Calculates Z (depth) from disparity (d).
+ * Formula: Z = (f * B) / d
+ * Where:
+ * f = Focal length in pixels (recovered from LensIntrinsics)
+ * B = Baseline in millimeters (distance between Main and Ultra sensors)
+ * d = Disparity in pixels (shift between feature points)
  *
- * Hardware Note:
- * The Redmi Note 14 5G lacks a Time-of-Flight (ToF) sensor. We rely strictly on
- * raw disparity maps generated between the Main and Ultrawide lenses.
+ * 2. DISTORTION CORRECTION: Applies Brown-Conrady un-distortion to raw points
+ * BEFORE calculating disparity. This is critical for the "Medical Grade" accuracy
+ * requirement, as raw wide-angle lenses have significant barrel distortion.
  */
-@Singleton
 class StereoMath @Inject constructor() {
 
     /**
      * Calculates depth (Z) in millimeters.
      *
-     * Formula: Z = (f * B) / d
-     *
-     * @param focalLengthPixels The focal length of the primary camera in pixels.
-     * @param baselineMm The physical distance between the two camera lenses (approx 15mm-25mm on most phones).
-     * @param disparityPixels The pixel shift of a feature point between the left and right images.
-     * @return Depth Z in millimeters. Returns 0f if disparity is too low (infinity).
+     * @param focalLengthPixels The focal length (fx) from the Main camera's intrinsics.
+     * @param baselineMm The physical distance between the two camera sensors (approx 12mm-20mm on phones).
+     * @param disparityPixels The calculated pixel shift for a matched feature point.
+     * @return Depth Z in millimeters. Returns Float.MAX_VALUE if disparity is effectively zero (infinity).
      */
-    fun calculateDepth(focalLengthPixels: Float, baselineMm: Float, disparityPixels: Float): Float {
-        if (disparityPixels < 0.1f) return 0f // Avoid divide by zero (Point is at infinity)
+    fun calculateDepth(
+        focalLengthPixels: Float,
+        baselineMm: Float,
+        disparityPixels: Float
+    ): Float {
+        if (disparityPixels < 0.1f) return Float.MAX_VALUE // Avoid divide-by-zero
         return (focalLengthPixels * baselineMm) / disparityPixels
     }
 
     /**
-     * Applies Brown-Conrady distortion correction to a raw 2D point.
+     * Undistorts a 2D point using the Brown-Conrady model.
+     * Required because the Ultrawide lens introduces barrel distortion that ruins depth accuracy.
      *
-     * Since the distortion model maps (undistorted -> distorted), finding the undistorted
-     * point requires an iterative approach (Newton-Raphson).
-     *
-     * @param x Raw X pixel coordinate from sensor.
-     * @param y Raw Y pixel coordinate from sensor.
-     * @param intrinsics The camera's physical calibration data.
-     * @return Pair(Corrected X, Corrected Y)
+     * @param x Raw X pixel coordinate.
+     * @param y Raw Y pixel coordinate.
+     * @param intrinsics The lens intrinsics containing distortion coefficients [k1, k2, k3, p1, p2].
+     * @return Pair(correctedX, correctedY)
      */
-    fun undistortPoint(x: Float, y: Float, intrinsics: LensIntrinsics): Pair<Float, Float> {
-        // Normalize coordinates relative to principal point
-        val normX = (x - intrinsics.principalPointX) / intrinsics.focalLengthX
-        val normY = (y - intrinsics.principalPointY) / intrinsics.focalLengthY
+    fun undistortPoint(
+        x: Float,
+        y: Float,
+        intrinsics: LensIntrinsics
+    ): Pair<Float, Float> {
+        val distortion = intrinsics.distortion
 
-        var xU = normX
-        var yU = normY
-
-        // 5 Iterations of Newton-Raphson are usually sufficient for < 0.1px error
-        for (i in 0 until 5) {
-            val r2 = xU * xU + yU * yU
-            val r4 = r2 * r2
-            val r6 = r4 * r2
-
-            // Radial distortion factors
-            val k1 = intrinsics.distortion.getOrElse(0) { 0f }
-            val k2 = intrinsics.distortion.getOrElse(1) { 0f }
-            val k3 = intrinsics.distortion.getOrElse(2) { 0f }
-
-            // Tangential distortion factors
-            val p1 = intrinsics.distortion.getOrElse(3) { 0f }
-            val p2 = intrinsics.distortion.getOrElse(4) { 0f }
-
-            val radial = 1 + k1 * r2 + k2 * r4 + k3 * r6
-
-            // Delta calculation (Forward projection)
-            val deltaX = 2 * p1 * xU * yU + p2 * (r2 + 2 * xU * xU)
-            val deltaY = p1 * (r2 + 2 * yU * yU) + 2 * p2 * xU * yU
-
-            val xDistorted = xU * radial + deltaX
-            val yDistorted = yU * radial + deltaY
-
-            // Error (Residual)
-            val errorX = xDistorted - normX
-            val errorY = yDistorted - normY
-
-            // Apply simplistic gradient descent step (approximate inverse)
-            // Full Jacobian matrix is expensive; this approximation works for typical lens curves.
-            xU -= errorX
-            yU -= errorY
+        // If no distortion coefficients exist, return raw point (assume perfect lens)
+        if (distortion == null || distortion.isEmpty()) {
+            return Pair(x, y)
         }
 
-        // Denormalize back to pixel coordinates
-        val finalX = xU * intrinsics.focalLengthX + intrinsics.principalPointX
-        val finalY = yU * intrinsics.focalLengthY + intrinsics.principalPointY
+        // Normalize coordinates (centered at principal point)
+        val cx = intrinsics.principalPointX
+        val cy = intrinsics.principalPointY
+        val fx = intrinsics.focalLengthX
+        val fy = intrinsics.focalLengthY
 
-        return Pair(finalX, finalY)
+        var xNorm = (x - cx) / fx
+        var yNorm = (y - cy) / fy
+
+        // r^2 = x^2 + y^2
+        val r2 = xNorm.pow(2) + yNorm.pow(2)
+        val r4 = r2 * r2
+        val r6 = r2 * r4
+
+        // Extract coefficients (Standard Android Camera2 order: [k1, k2, k3, p1, p2])
+        val k1 = distortion.getOrElse(0) { 0f }
+        val k2 = distortion.getOrElse(1) { 0f }
+        val k3 = distortion.getOrElse(2) { 0f }
+        val p1 = distortion.getOrElse(3) { 0f }
+        val p2 = distortion.getOrElse(4) { 0f }
+
+        // Radial distortion factor: 1 + k1*r^2 + k2*r^4 + k3*r^6
+        val radial = 1f + (k1 * r2) + (k2 * r4) + (k3 * r6)
+
+        // Tangential distortion correction
+        // x_corrected = x_norm * radial + 2*p1*x*y + p2*(r^2 + 2*x^2)
+        // y_corrected = y_norm * radial + p1*(r^2 + 2*y^2) + 2*p2*x*y
+        val xTangential = (2f * p1 * xNorm * yNorm) + (p2 * (r2 + 2f * xNorm.pow(2)))
+        val yTangential = (p1 * (r2 + 2f * yNorm.pow(2))) + (2f * p2 * xNorm * yNorm)
+
+        val xCorrectedNorm = (xNorm * radial) + xTangential
+        val yCorrectedNorm = (yNorm * radial) + yTangential
+
+        // Denormalize back to pixel coordinates
+        val xFinal = (xCorrectedNorm * fx) + cx
+        val yFinal = (yCorrectedNorm * fy) + cy
+
+        return Pair(xFinal, yFinal)
     }
 
     /**
-     * Calculates the surface area of a pixel at a specific depth.
-     * This is critical for the "Wound Area" calculation.
+     * Calculates the surface area of a wound mask in mm².
      *
-     * @param depthMm Distance to the wound surface.
-     * @param focalLengthPixels Camera focal length.
-     * @return Area of one pixel in mm^2 at that depth.
+     * @param maskPixelCount Total number of pixels in the wound mask.
+     * @param depthMm The average depth of the wound in millimeters.
+     * @param focalLengthPixels Focal length of the camera in pixels.
+     * @return Area in square millimeters.
      */
-    fun calculatePixelAreaAtDepth(depthMm: Float, focalLengthPixels: Float): Float {
-        // GSD (Ground Sample Distance) = (Sensor Size * Depth) / (Focal Length * Image Width)
-        // Simplified: Pixel Scale = Depth / Focal Length
-        val pixelScale = depthMm / focalLengthPixels
-        return pixelScale * pixelScale
+    fun calculateSurfaceArea(
+        maskPixelCount: Int,
+        depthMm: Float,
+        focalLengthPixels: Float
+    ): Float {
+        // Pixel scale (mm per pixel) = Depth / FocalLength
+        // This is derived from similar triangles: X_mm / Z_mm = x_px / f_px
+        // => X_mm = x_px * (Z / f)
+        // Area scale factor = (Z / f)^2
+
+        val scaleFactor = depthMm / focalLengthPixels
+        val pixelAreaMm2 = scaleFactor * scaleFactor
+
+        return maskPixelCount * pixelAreaMm2
     }
 }
